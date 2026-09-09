@@ -1,765 +1,92 @@
-# 🤖 Day 1: BASH Review, SSH & System Setup
+# Phase 1 Lessons — Environment Setup (Revised)
 
-## 🤓 Overview and Learning Outcomes
-
-The goal of this lab assignment is to review and sharpen your BASH and SSH skills before diving into computer vision work. A solid command-line foundation will make every debugging session, file transfer, and script execution faster and less frustrating throughout this unit. 🚀
-
-By the end of this session you and your partner should be able to:
-- Navigate the Raspberry Pi filesystem confidently using BASH commands
-- Connect to your Pi via SSH from your workstation
-- Organize a project directory structure for the unit
-- Update the OS and set up a Python virtual environment ready for CV libraries
+These lessons replace the original Phase 1 content. The original version
+had students install libraries one at a time and troubleshoot version
+conflicts as they appeared (numpy/opencv/mediapipe ABI mismatches, protobuf
+errors, picamera2 venv visibility, etc.). That was valuable for
+understanding *why* dependency management matters, but it cost significant
+class time. This revision front-loads the correct, tested installation
+order so students spend lesson time on computer vision concepts instead of
+environment debugging.
 
 ---
 
-## 🖥️ Part 1: SSH & Navigation Review
+## Phase 1: Environment Setup (Day 1–2)
 
-### Connecting to Your Pi
+### Learning Objectives
+- Understand what a virtual environment is and why it isolates project
+  dependencies
+- Understand why version compatibility matters between core libraries
+  (NumPy, OpenCV, MediaPipe)
+- Successfully run a live camera feed through OpenCV
 
-Use SSH to connect headlessly from your workstation. Your instructor will provide the Pi's IP address.
+### Day 1: Imaging and First Boot
+
+1. Each student pair images their own SD card using **Raspberry Pi Imager**:
+   - OS: **Raspberry Pi OS (64-bit)** — Bookworm
+   - Click the gear icon and set:
+     - Unique hostname (e.g., `<lastname_initial><period>`)
+     - Unique username/password
+     - Enable SSH
+2. Boot the Pi, connect via SSH from a lab computer.
+3. Discuss as a class: *why does each Pi need a unique hostname?* (Preview
+   of networking/identity concepts that will matter later with RPi Connect.)
+
+### Day 2: Running the Bootstrap Script
+
+Rather than installing libraries one at a time and hitting errors, students
+run a single tested bootstrap script and **read what it's doing** as it
+runs — this is where the "why" gets taught, just without the trial-and-error
+cost.
 
 ```bash
-ssh pi@<YOUR_PI_IP_ADDRESS>
+git clone https://github.com/YOUR_ORG/YOUR_TEACHER_REPO.git ~/setup
+cd ~/setup
+bash bootstrap_pi.sh
 ```
 
-Once connected, confirm you are on the right machine:
+**Classroom discussion points while it runs (~5–10 minutes):**
+- Why do we pin `numpy<2.0`? (NumPy 2.0 changed its internal binary
+  interface — older compiled libraries like OpenCV and Picamera2 can crash
+  if a newer NumPy is installed on top of them.)
+- Why use `--system-site-packages` when creating the virtual environment?
+  (Some libraries, like Picamera2, are tied closely to the Pi's OS and
+  camera drivers — they're easiest to install system-wide via `apt` rather
+  than through `pip` inside an isolated venv.)
+- Why pin `mediapipe==0.10.18` specifically? (Newer versions changed their
+  Python API; this version matches the lesson code students will use.)
 
+**Manual steps after the script finishes:**
+1. `rpi-connect signin` — link the device to the class Raspberry Pi Connect
+   account (requires a browser).
+2. `sudo raspi-config` → enable Wayland (Wayfire/Labwc) and Desktop
+   Autologin (needed for remote screen sharing later).
+3. Reboot and verify:
+   ```bash
+   which python3
+   python3 ~/Documents/scripts/pose_basic.py
+   ```
+
+**Note on the camera:** Bookworm auto-detects a connected camera module —
+there is no "enable camera" toggle needed in `raspi-config`, unlike older
+Raspberry Pi OS releases. Confirm detection with:
 ```bash
-hostname
-uname -a
+rpicam-hello --list-cameras
 ```
 
-### Filesystem Navigation
-
-Practice these core navigation commands — you will use all of them every day this unit:
-
-| Command | What it does |
-|---|---|
-| `pwd` | Print current working directory |
-| `ls -la` | List all files with permissions and sizes |
-| `cd ~/Documents` | Change to a directory |
-| `cd ..` | Move up one directory level |
-| `mkdir cv_project` | Create a new directory |
-| `cp file.py backup.py` | Copy a file |
-| `mv old.py new.py` | Rename or move a file |
-| `rm file.py` | Delete a file (no recycle bin — be careful!) |
-| `cat file.py` | Print a file's contents to the terminal |
-| `nano file.py` | Open a file in the nano text editor |
-
-**Partner Activity:** Partner A creates the directory structure below using only BASH commands. Partner B verifies it using `ls -R ~/cv_project`. Then switch roles and tear down and rebuild it.
-
-```
-~/cv_project/
-├── notebooks/
-├── scripts/
-├── images/
-└── models/
-```
+### Engineering Notebook Entry #1 (Day 3, per original rubric)
+- BASH setup log (what the bootstrap script did, in the student's own words)
+- Camera pipeline sketch
+- HSV reflection paragraph
 
 ---
 
-## ⚙️ Part 2: File Permissions & Process Control
-
-### Permissions
-
-Every file on Linux has read (`r`), write (`w`), and execute (`x`) permissions for the owner, group, and others. You will need to make Python scripts executable.
-
-```bash
-# View permissions
-ls -l myscript.py
-
-# Make a script executable
-chmod +x myscript.py
-
-# Run it
-./myscript.py
-```
-
-### Process Control
-
-```bash
-# See all running processes
-ps aux
-
-# Find a specific process
-ps aux | grep python
-
-# Kill a runaway script by PID
-kill 1234
-
-# Force kill if it won't quit
-kill -9 1234
-
-# Kill by name
-pkill python3
-pkill -9 -f day3_live.py
-
-# Run a script and push it to the background
-python3 myscript.py &
-
-# Bring background job back to foreground
-fg
-```
-
-> **Troubleshooting tip:** If a graphical camera window won't close (a common issue over SSH/X11 forwarding), don't fight it — go to your terminal and press `Ctrl+C`, or open a second SSH session and force-kill the process with `pkill -9 -f <script_name>.py`.
-
----
-
-## 🐍 Part 3: Virtual Environment Setup
-
-Starting with Raspberry Pi OS Bookworm, plain `pip install` is blocked at the system level to protect OS packages. The correct solution is a **Python virtual environment** — but for computer vision work on the Pi, it must be created with access to system packages, since key camera libraries (`libcamera`, `picamera2`) are only distributed via `apt`, not `pip`.
-
-```bash
-# Create the virtual environment WITH system site-packages access
-python3 -m venv ~/cv_env --system-site-packages
-
-# Activate it (do this every session)
-source ~/cv_env/bin/activate
-
-# Install a test package
-pip install numpy
-
-# Confirm it installed
-python3 -c "import numpy; print(numpy.__version__)"
-
-# Deactivate when done
-deactivate
-```
-
-### Make Activation Automatic
-
-```bash
-echo "source ~/cv_env/bin/activate" >> ~/.bashrc
-source ~/.bashrc
-```
-
----
-
-## 🔄 Part 4: OS Update, System Dependencies & Camera Check
-
-```bash
-# Update package lists and upgrade installed packages
-sudo apt update && sudo apt upgrade -y
-
-# Install system-level dependencies OpenCV and picamera2 need
-sudo apt install -y python3-full libopenblas-dev libblas-dev liblapack-dev \
-  libhdf5-dev libgtk-3-0 libcap-dev python3-libcamera python3-picamera2
-```
-
-> **Note on system dependencies:** Newer Raspberry Pi OS releases (based on Debian Trixie) have dropped the older `libatlas-base-dev` package in favor of `libopenblas-dev`, `libblas-dev`, and `liblapack-dev`. `libcap-dev` is required to build picamera2's dependencies. `python3-libcamera` and `python3-picamera2` are installed at the system level — this is why your venv needs `--system-site-packages` to see them.
-
-Reboot to make sure everything is fully up to date:
-
-```bash
-sudo reboot
-```
-
-> **Note on camera setup:** On current Raspberry Pi OS releases, the camera is enabled automatically and there is no longer a "Camera" toggle under Interface Options in `raspi-config` — this menu option has been removed as part of the platform's move away from the legacy `libcamera-still`/`libcamera-vid` command-line tools toward the newer `rpicam-apps` tools. You do not need to manually enable anything; just plug in the camera ribbon cable (blue side facing the USB ports) before powering on the Pi.
-
-After reboot, reconnect via SSH and verify the camera is recognized using the current camera utility:
-
-```bash
-rpicam-still --list-cameras
-```
-
-If your camera is detected, you'll see its name (e.g., `imx219`) and supported resolution modes listed.
-
-### Install Python CV Libraries
-
-Now install your Python packages inside the activated venv:
-
-```bash
-source ~/cv_env/bin/activate
-pip install opencv-python mediapipe
-```
-
-Confirm everything can be imported together:
-
-```bash
-python3 -c "import cv2; import libcamera; import picamera2; print('All modules OK')"
-```
-
----
-
-## 💻 Terms to Know
-
-- **SSH (Secure Shell):** A protocol for securely accessing another computer over a network using an encrypted terminal connection
-- **BASH:** The default command-line shell on Linux/Raspberry Pi OS; stands for Bourne Again SHell
-- **Virtual environment (venv):** An isolated Python environment that keeps a project's libraries separate from the system Python installation
-- **`--system-site-packages`:** A venv creation flag that allows the virtual environment to also see packages installed at the system level (needed for `libcamera`/`picamera2`)
-- **PEP 668:** A Python standard adopted in 2023 that prevents pip from installing packages into the system Python — this is why bare `pip install` fails on Bookworm
-- **`apt`:** The system package manager for Debian/Raspberry Pi OS; used for OS-level packages
-- **`pip`:** Python's package installer; used inside a virtual environment for Python libraries
-- **BLAS/LAPACK:** Standard linear algebra libraries that numerical packages like NumPy and OpenCV rely on for fast matrix math; OpenBLAS is the modern, actively maintained implementation
-- **`rpicam-apps`:** The current official Raspberry Pi camera software stack (replacing the legacy `libcamera-*` command-line tools) used to capture stills and video from the terminal
-- **`picamera2`:** The official Python library for controlling the Pi camera via the modern `libcamera` stack; required because OpenCV's `cv2.VideoCapture()` cannot talk to the Pi Camera Module directly
-- **File permissions:** A Linux system controlling who can read, write, or execute each file (owner / group / others)
-- **Process:** A running program; each has a unique Process ID (PID)
-- **`SIGKILL` (`kill -9`):** A forceful process-termination signal that cannot be ignored, used when a normal `kill` or `Ctrl+C` fails to close a hung program
-- **`~`:** Shorthand for the current user's home directory (e.g., `/home/pi`)
-
-## 📝 Next Steps
-
-- Confirm your `cv_env` virtual environment activates automatically on login
-- Verify `rpicam-still --list-cameras` shows your Pi Camera V2
-- Confirm `python3 -c "import cv2; import libcamera; import picamera2; print('All modules OK')"` prints successfully
-- Complete **Engineering Notebook Entry #1:** Sketch the directory structure you built; document every command used in Parts 3 and 4; note any errors encountered and how you resolved them
-- Tomorrow: you will learn about the camera hardware itself and capture your first images with Python
-
-## 📚 Resources
-
-- [Raspberry Pi Official BASH Documentation](https://www.raspberrypi.com/documentation/)
-- [PEP 668 Explanation & venv Fix — Raspberry Pi Forums](https://github.com/raspberrypi/bookworm-feedback/issues/4)
-- [Python venv Official Docs](https://docs.python.org/3/library/venv.html)
-- [Linux File Permissions Explained — linuxcommand.org](https://linuxcommand.org/lc3_lts0090.php)
-- [rpicam-apps Documentation](https://www.raspberrypi.com/documentation/computers/camera_software.html)
-- [Picamera2 Manual — Raspberry Pi](https://datasheets.raspberrypi.com/camera/picamera2-manual.pdf)
-
----
----
-
-# 🤖 Day 2: Camera Optics & the Raspberry Pi Camera V2
-
-## 🤓 Overview and Learning Outcomes
-
-The goal of this lab assignment is to understand the physical and optical properties of the Raspberry Pi Camera V2 before writing a single line of vision code. Knowing *why* images look the way they do — why objects blur at close range, why the frame cuts off at a certain distance, why brightness changes with exposure settings — will make you a far better debugger and system designer. 🚀
-
-By the end of this session you and your partner should be able to:
-- Explain focal length, aperture, field of view, and sensor size in plain language
-- Calculate the area the camera "sees" at a given working distance using the FOV formula
-- Capture stills and video at multiple resolution modes and explain the tradeoffs
-- Predict where to mount the camera for a given project based on your calculations
-
----
-
-## 📷 Part 1: The Pi Camera V2 — Hardware Specs
-
-### Sensor Overview
-
-The Raspberry Pi Camera Module V2 uses the **Sony IMX219** image sensor. Key specifications:
-
-| Property | Value |
-|---|---|
-| Sensor | Sony IMX219 |
-| Resolution | 8 MP (3280 × 2464 pixels) |
-| Sensor size | 1/4 inch |
-| Pixel size | 1.12 µm |
-| Aperture | f/2.0 (fixed) |
-| Focal length | 3.04 mm (fixed focus) |
-| Horizontal FOV | 62.2° |
-| Vertical FOV | 48.8° |
-| Diagonal FOV | ~73° |
-
-The lens is **fixed focus** — there is no autofocus motor. The camera is factory-focused for objects roughly 1 meter and beyond.
-
-### Video Modes
-
-Different video modes use different portions of the sensor:
-
-| Mode | Resolution | Frame Rate | Notes |
-|---|---|---|---|
-| Full stills | 3280 × 2464 | — | Full sensor, max detail |
-| 1080p video | 1920 × 1080 | 30 fps | Center crop of sensor |
-| 720p video | 1280 × 720 | 60 fps | Center crop, higher frame rate |
-| 480p video | 640 × 480 | 90 fps | Small crop, fastest for CV |
-
-**Important for CV work:** 1080p and lower video modes crop the center of the sensor, which *narrows* your actual field of view compared to the full-resolution specs above.
-
----
-
-## 🔭 Part 2: Focal Length & Field of View
-
-### What Is Focal Length?
-
-Focal length (measured in mm) describes how strongly the lens bends light. A **shorter focal length = wider angle of view**. The V2's 3.04 mm lens is very wide for its tiny sensor — this is why it can see ~62° horizontally from such a small board.
-
-### What Is Aperture?
-
-Aperture (the f-number) controls how much light enters the lens. The V2's fixed f/2.0 aperture is relatively wide (lets in a lot of light), making it good for indoor environments without extra lighting.
-
-### Calculating Your Field of View at Distance
-
-You can calculate the width and height of what the camera sees at any distance using the following formulas:
-
-For a camera with horizontal FOV angle θ_h and vertical FOV angle θ_v, the visible width W and height H at distance D are:
-
-$$W = 2 \times D \times \tan\!\left(\frac{\theta_h}{2}\right)$$
-
-$$H = 2 \times D \times \tan\!\left(\frac{\theta_v}{2}\right)$$
-
-**Example — Bird Feeder Mount:**
-If you mount the camera 40 cm (0.4 m) away from a bird feeder:
-
-- W = 2 × 0.4 × tan(31.1°) ≈ **0.48 m (48 cm)**
-- H = 2 × 0.4 × tan(24.4°) ≈ **0.36 m (36 cm)**
-
-So your camera would see a 48 cm × 36 cm window — enough to frame a typical feeder.
-
-### Hands-On FOV Calculation Activity
-
-Fill in this table for your own project idea. Measure the actual area the camera sees using a ruler and compare to the calculated values:
-
-| Distance (D) | Calculated Width | Calculated Height | Measured Width | Measured Height |
-|---|---|---|---|---|
-| 20 cm | | | | |
-| 40 cm | | | | |
-| 100 cm | | | | |
-| 200 cm | | | | |
-
----
-
-## 📸 Part 3: Capturing Images & Video
-
-### Capturing a Still Image
-
-```bash
-# Make sure the venv is active
-source ~/cv_env/bin/activate
-
-# Capture a still at full resolution
-rpicam-still -o ~/cv_project/images/test_full.jpg
-
-# Capture at reduced resolution
-rpicam-still --width 1280 --height 720 -o ~/cv_project/images/test_720.jpg
-```
-
-### Capturing Video
-
-```bash
-# Record 10 seconds of 1080p30 video
-rpicam-vid -t 10000 --width 1920 --height 1080 -o ~/cv_project/images/test_1080.h264
-
-# Record 10 seconds of 480p90 (better for CV — higher frame rate)
-rpicam-vid -t 10000 --width 640 --height 480 --framerate 90 -o ~/cv_project/images/test_480.h264
-```
-
-### Viewing Images via SCP
-
-Transfer images to your workstation to view them:
-
-```bash
-# Run this on your workstation (not the Pi)
-scp pi@<PI_IP>:~/cv_project/images/test_full.jpg .
-```
-
-### Partner Activity: Resolution Comparison
-
-Capture the same scene at full resolution and 640×480. Compare:
-- File size (use `ls -lh`)
-- Visible detail
-- Time to capture
-
-Document findings in your notebook — which mode would you choose for real-time computer vision and why?
-
----
-
-## 💡 Part 4: Lighting & Exposure Basics
-
-The V2's fixed aperture means your primary exposure controls in CV scripts will be:
-- **Shutter speed** — longer = brighter but more motion blur
-- **ISO/gain** — higher = brighter but more noise (grain)
-- **Scene lighting** — the most impactful variable you can actually control
-
-For CV to work reliably, consistent lighting matters more than resolution. A diffused LED ring light or a window facing north (no direct sun) dramatically improves detection accuracy. Keep this in mind when designing your final project's mounting system.
-
----
-
-## 💻 Terms to Know
-
-- **Focal length:** The distance (in mm) between the lens and the image sensor when the lens is focused at infinity; determines angle of view
-- **Aperture (f-number):** A ratio describing how wide the lens opening is; lower f-number = more light admitted
-- **Field of View (FOV):** The angular extent of the scene the camera can capture; expressed in degrees horizontally, vertically, or diagonally
-- **Sensor size:** The physical dimensions of the image sensor; larger sensors capture more light and detail
-- **Fixed focus:** A lens with no autofocus motor; depth of field is determined by the focal length and aperture
-- **Resolution:** The number of pixels in an image (width × height); higher resolution = more detail but larger files and slower processing
-- **Frame rate (fps):** Frames captured per second; higher fps = smoother motion detection but more CPU load
-- **Depth of field:** The range of distances that appear acceptably sharp in an image
-- **Exposure:** The total amount of light reaching the sensor; controlled by aperture, shutter speed, and ISO
-
-## 📝 Next Steps
-
-- Complete the FOV calculation table for at least 3 distances relevant to your project idea
-- Transfer at least one image to your workstation via SCP
-- Complete **Engineering Notebook Entry #1** (continued): Add a sketch of the camera sensor diagram with FOV angles labeled; include your completed FOV table with both calculated and measured values; write a short paragraph predicting the best mounting distance for your project concept
-- Tomorrow: you will open a live camera feed in Python using OpenCV and start processing frames in real time
-
-## 📚 Resources
-
-- [Official Raspberry Pi Camera Documentation](https://www.raspberrypi.com/documentation/accessories/camera.html)
-- [Raspberry Pi Camera V2 Specs — Waveshare](https://www.waveshare.com/rpi-camera-v2.htm)
-- [Lens FOV Calculator — Commonlands Optics](https://commonlands.com/pages/camera-fov-calculator)
-- [rpicam-apps Documentation & CLI Reference](https://www.raspberrypi.com/documentation/computers/camera_software.html)
-- [Understanding Camera Exposure — Cambridge in Colour](https://www.cambridgeincolour.com/tutorials/camera-exposure.htm)
-
----
----
-
-# 🤖 Day 3: Intro to OpenCV — Images, Frames & Basic Operations
-
-## 🤓 Overview and Learning Outcomes
-
-The goal of this lab assignment is to get hands-on with OpenCV — the open-source computer vision library that powers most of the CV techniques in this unit. You will open a live camera feed, manipulate frames in real time, and build the basic pipeline that every future lab will extend. 🚀
-
-By the end of this session you and your partner should be able to:
-- Open and display a live camera feed using Python, Picamera2, and OpenCV
-- Perform core image operations: resize, color space conversion, blur, and annotation
-- Understand why the HSV color space is preferred over RGB for CV tasks
-- Write a complete Python script that captures, processes, and saves an annotated image
-
----
-
-## 🐍 Part 1: OpenCV Install & First Image
-
-### Confirm OpenCV Is Installed in Your venv
-
-```bash
-source ~/cv_env/bin/activate
-pip install opencv-python
-python3 -c "import cv2; print(cv2.__version__)"
-```
-
-### Open a Static Image
-
-Create `~/cv_project/scripts/day3_image.py`:
-
-```python
-import cv2
-
-# Load an image from disk
-img = cv2.imread('/home/pi/cv_project/images/test_full.jpg')
-
-# Print shape: (height, width, channels)
-print(f"Image shape: {img.shape}")
-print(f"Data type: {img.dtype}")
-
-# Display it (requires a monitor or VNC — if headless, skip to saving)
-cv2.imshow('My Image', img)
-cv2.waitKey(0)         # Wait for any key press
-cv2.destroyAllWindows()
-```
-
-> **Headless Pi tip:** If you are connected via SSH without a display, skip `imshow` for now and save processed images to disk with `cv2.imwrite()`, then use SCP to view them.
-
----
-
-## 🎥 Part 2: Live Camera Feed
-
-### Why Not `cv2.VideoCapture()`?
-
-You might expect to open the camera with OpenCV's built-in `cv2.VideoCapture(0)` — but on current Raspberry Pi OS, **this will not work with the Pi Camera Module**. `cv2.VideoCapture()` only supports standard USB/V4L2 webcams; the Pi Camera runs on the `libcamera` stack, which OpenCV cannot access directly. Attempting it will produce a `Failed to grab frame` error even though the camera itself is working fine.
-
-### The Correct Pattern: Picamera2 + OpenCV
-
-Instead, we use **Picamera2** (the official library for the modern camera stack) to capture each frame, then hand that frame to OpenCV for processing and display. This is the pattern every script for the rest of the unit will follow.
-
-```python
-import cv2
-from picamera2 import Picamera2
-
-picam2 = Picamera2()
-picam2.configure(picam2.create_preview_configuration(
-    main={"format": 'XRGB8888', "size": (640, 480)}
-))
-picam2.start()
-
-try:
-    while True:
-        frame = picam2.capture_array()
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # convert to OpenCV's format
-
-        # --- All processing happens here ---
-        cv2.imshow('Live Feed', frame)
-
-        # Press 'q' (with the window focused) to quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-except KeyboardInterrupt:
-    print("Interrupted by user")
-
-finally:
-    picam2.stop()
-    cv2.destroyAllWindows()
-```
-
-Save as `~/cv_project/scripts/day3_live.py` and run:
-
-```bash
-python3 ~/cv_project/scripts/day3_live.py
-```
-
-> **Closing the window:** Click directly on the video window first so it has keyboard focus, then press `q`. If the window becomes unresponsive (a known issue with SSH/X11-forwarded OpenCV windows, which have no real window manager controlling them), press `Ctrl+C` in the terminal instead — the `try`/`except`/`finally` block above ensures the camera and window are released cleanly either way. If it's still stuck, open a second SSH session and run `pkill -9 -f day3_live.py`.
-
----
-
-## 🎨 Part 3: Core Image Operations
-
-Add each of these operations *inside* the while loop, one at a time, right after the `frame = cv2.cvtColor(...)` line. Observe the effect before adding the next one.
-
-### Resize
-
-```python
-small = cv2.resize(frame, (320, 240))
-```
-
-### Grayscale Conversion
-
-```python
-gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-```
-
-### Gaussian Blur (noise reduction before detection)
-
-```python
-blurred = cv2.GaussianBlur(gray, (15, 15), 0)
-# Kernel size (15,15) must be odd numbers; larger = more blur
-```
-
-### Drawing Overlays
-
-```python
-# Rectangle: (image, top-left corner, bottom-right corner, color BGR, thickness)
-cv2.rectangle(frame, (50, 50), (200, 200), (0, 255, 0), 2)
-
-# Circle: (image, center, radius, color BGR, thickness)
-cv2.circle(frame, (320, 240), 30, (255, 0, 0), 3)
-
-# Text: (image, text, origin, font, scale, color BGR, thickness)
-cv2.putText(frame, 'Hello CV!', (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-```
-
----
-
-## 🌈 Part 4: RGB vs. HSV Color Space
-
-### Why Not RGB?
-
-In RGB, the color of a pixel is split across three channels (Red, Green, Blue) in a way that makes it hard to isolate a specific color under changing lighting. A red apple in bright light and a red apple in shadow have very different RGB values.
-
-### How HSV Works
-
-HSV separates color information into three independent channels:
-
-| Channel | Meaning | Range (OpenCV) |
-|---|---|---|
-| **H** (Hue) | The actual color (red, green, blue...) | 0–179 |
-| **S** (Saturation) | How vivid/pure the color is | 0–255 |
-| **V** (Value) | Brightness | 0–255 |
-
-This makes it easy to define a color range that is robust to lighting changes — you only tune the Hue range and leave S/V broad.
-
-### Convert to HSV
-
-```python
-hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-# Example: create a mask for blue objects
-lower_blue = (100, 100, 50)
-upper_blue = (130, 255, 255)
-mask = cv2.inRange(hsv, lower_blue, upper_blue)
-
-# Apply mask to original frame — only blue pixels survive
-result = cv2.bitwise_and(frame, frame, mask=mask)
-```
-
----
-
-## 🧪 Part 5: Lab Challenge
-
-Build a complete script `~/cv_project/scripts/day3_annotated.py` (based on the Picamera2 pattern from Part 2) that:
-
-1. Opens the live camera feed at 640×480 using Picamera2
-2. On each frame, displays:
-   - Your team name in the top-left corner
-   - Current frame dimensions (width × height) in the bottom-left corner
-   - A timestamp using Python's `datetime` module in the top-right corner
-3. Converts the frame to HSV and displays the HSV version side-by-side with the original using `cv2.hconcat([frame, cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)])`
-4. When the user presses `s`, saves the current frame to `~/cv_project/images/snapshot.jpg`
-5. When the user presses `q`, quits cleanly (use the `try`/`finally` pattern from Part 2)
-
-**Hint for timestamp:**
-```python
-from datetime import datetime
-timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-```
-
----
-
-## 💻 Terms to Know
-
-- **OpenCV:** Open Source Computer Vision Library; a Python/C++ library for real-time image and video processing
-- **Picamera2:** The official Python library for controlling the Raspberry Pi Camera via the `libcamera` stack; used to capture frames that are then handed to OpenCV
-- **Frame:** A single image captured from a video stream; video is a sequence of frames displayed at a set frame rate
-- **BGR:** Blue-Green-Red — OpenCV's default channel order (note: *not* RGB like most other tools)
-- **HSV:** Hue-Saturation-Value color model; preferred for color-based CV because it separates color (hue) from brightness (value)
-- **Mask:** A binary image (pixels are either 0 or 255) used to isolate regions of interest in another image
-- **Kernel:** In image processing, a small matrix applied across an image to perform operations like blur or edge detection
-- **Contour:** A curve joining all continuous points along a boundary with the same color or intensity
-- **`cv2.waitKey(1)`:** Waits 1 ms for a key press; essential in the capture loop to allow the display to refresh; only receives keys when the display window has focus
-- **Headless:** Running a Raspberry Pi without a monitor, accessed only via SSH
-
-## 📝 Next Steps
-
-- Push your Day 3 scripts to your GitHub repository
-- Complete **Engineering Notebook Entry #1** (continued): Paste your annotated script, include a screenshot of the side-by-side HSV/RGB output (transfer via SCP), and answer in writing: *Why is HSV better than BGR for detecting a specific color under changing light conditions?*
-- Tomorrow: you will formally launch the EDD design process — concept sketches, problem statements, and project selection
-
-## 📚 Resources
-
-- [OpenCV Official Python Documentation](https://docs.opencv.org/4.x/d6/d00/tutorial_py_root.html)
-- [OpenCV Python Tutorials — PyImageSearch](https://pyimagesearch.com/start-here/)
-- [Picamera2 Manual — Raspberry Pi](https://datasheets.raspberrypi.com/camera/picamera2-manual.pdf)
-- [HSV Color Space Explained — LearnOpenCV](https://learnopencv.com/color-spaces-in-opencv-cpp-python/)
-- [Install OpenCV on Raspberry Pi — Random Nerd Tutorials](https://randomnerdtutorials.com/install-opencv-raspberry-pi/)
-
----
----
-
-# 🤖 Day 4: Design Process Launch — Problem Identification & Concept Sketches
-
-## 🤓 Overview and Learning Outcomes
-
-The goal of this lab assignment is to formally launch the EDD design process for your Computer Vision System project. You and your partner will define a real problem worth solving, generate multiple design concepts, and begin the documentation trail that will follow your project all the way to Demo Day. 🚀
-
-By the end of this session you and your partner should be able to:
-- Write a clear, specific problem statement that identifies a user, a need, and measurable criteria
-- Independently generate at least three annotated concept sketches
-- Evaluate and discuss tradeoffs between concepts using engineering reasoning
-- Complete the first formal entry in your Engineering Notebook
-
----
-
-## 🔍 Part 1: The EDD Design Process
-
-### Where We Are
-
-Engineering Design and Development (EDD) follows a structured design process. In this unit we are working through the full cycle:
-
-```
-Problem Identification → Research → Concept Generation →
-Decision Matrix → Design Brief → Plan → Build → Test → Iterate → Present
-```
-
-Today covers **Problem Identification** and **Concept Generation**. This is not a shortcut phase — the quality of your problem definition directly determines the quality of your final system.
-
-### What Makes a Good Problem Statement?
-
-A strong problem statement answers three questions:
-1. **Who** has the problem? (the user/stakeholder)
-2. **What** is the unmet need or inefficiency?
-3. **How will we know** when the problem is solved? (measurable criteria)
-
-**Weak example:** "I want to build a camera system."
-
-**Strong example:** "Backyard birders often miss seeing which species visit their feeder because they cannot watch it constantly. A visual AI system that automatically identifies and logs bird species by photo, with timestamps, would allow users to review visits without being present."
-
----
-
-## 💡 Part 2: Computer Vision Application Gallery
-
-Before sketching, review the landscape of what is possible with the hardware and skills you are building. Your final project must use at least one of the CV techniques from this unit.
-
-| CV Technique | Example Applications |
-|---|---|
-| **Color/Shape Tracking** | Sorting objects on a conveyor, tracking a sports ball, QC inspection |
-| **Object Detection (TFLite)** | Wildlife camera, vehicle counter, inventory scanner, delivery detection |
-| **Pose Estimation** | Rep counter for exercise, posture coach, gesture-controlled interface |
-| **Face Detection/Recognition** | Security door system, classroom attendance, personalized greetings |
-| **Multi-technique combined** | Smart birdfeeder (detect bird → identify species → log + notify) |
-
-**Class Discussion Questions (10 minutes):**
-- What problem in your school, home, or community could a camera system help with?
-- Who would benefit from your system and how would they use it?
-- What CV technique(s) from the list above would your solution require?
-
----
-
-## ✏️ Part 3: Individual Concept Sketching
-
-### Rules for Concept Sketching
-
-- **Work independently** — do not show your partner your sketches until both are done
-- Sketches must be **hand-drawn** — no computer diagrams at this stage
-- Each sketch must show: the physical setup, camera placement, what the camera sees, and what the system does with that information
-- Label every major component
-- Add brief annotations explaining key design choices
-
-### Each Partner Must Sketch at Least 3 Concepts
-
-For each concept, include:
-
-1. **System sketch** — physical drawing of the complete setup
-2. **Name** — give the concept a short memorable name
-3. **Problem it solves** — one sentence
-4. **CV technique used** — which module(s) from this unit apply
-5. **Output/action** — what does the system *do* with what it sees? (log to file, sound alarm, send notification, trigger LED, etc.)
-6. **Biggest unknown** — what would you need to figure out to make this work?
-
----
-
-## 🤝 Part 4: Partner Concept Discussion
-
-After independent sketching, share your concepts with your partner and discuss:
-
-- Which concepts use skills you will actually practice in this unit?
-- Which concepts are physically feasible with a Raspberry Pi 4 and Camera V2?
-- Which concepts would be most useful or impactful for a real user?
-- Which concept excites both of you the most?
-
-**Do not make a final decision today.** You will complete a formal Decision Matrix on Day 13 after you have practiced all the CV techniques. However, note your top 1–2 ideas because they will inform how you approach the skill-building labs.
-
----
-
-## 📓 Engineering Notebook Requirements
-
-Every notebook entry must include the following at the top:
-```
-Date: ___________
-Partner Names: ___________
-Entry #: ___________
-Objective: (one sentence — what were you trying to accomplish today?)
-```
-
-And must include at the bottom:
-```
-Results/Observations: (what happened? include data, screenshots, or sketches)
-Next Steps: (what will you do next session based on what you learned?)
-```
-
-### Entry #2 — Required Contents Today
-
-- [ ] Problem statement draft (use the who/what/how structure from Part 1)
-- [ ] 3 annotated concept sketches (Partner A's)
-- [ ] 3 annotated concept sketches (Partner B's)
-- [ ] 1 paragraph: compare and contrast your two sets of concepts — where did your ideas overlap? Where were they different?
-- [ ] 1 paragraph: which concept are you most interested in pursuing and why?
-
----
-
-## 💻 Terms to Know
-
-- **Design process:** A structured, iterative approach to solving engineering problems; in EDD it moves from problem identification through prototyping and testing
-- **Problem statement:** A clear, concise description of an unmet user need that guides the entire design effort
-- **Concept sketch:** A hand-drawn ideation drawing that communicates a design idea quickly, without committing to exact dimensions or specifications
-- **Stakeholder:** Anyone who is affected by or has an interest in the outcome of a design project (users, operators, bystanders)
-- **Design criteria:** Measurable standards a design must meet to be considered successful (e.g., "detects species with ≥80% accuracy")
-- **Design constraints:** Limitations the design must work within (e.g., "must run on a Raspberry Pi 4," "must cost under $50")
-- **Iteration:** Repeating the design process loop — build, test, observe, revise — to improve a design over time
-- **Decision matrix:** A table that scores multiple design concepts against weighted criteria to make a defensible design selection
-- **Design brief:** A formal document summarizing the problem, stakeholders, criteria, and constraints for a design project
-
-## 📝 Next Steps
-
-- Photograph or scan your concept sketches and upload them to your GitHub repo under `notebooks/`
-- Begin thinking about which CV techniques you are most excited to explore in the upcoming labs — those interests can guide your final project choice
-- Complete **Engineering Notebook Entry #2** (all items in the checklist above) before next class
-- Tomorrow: you begin the CV skill-building labs — starting with color tracking and shape detection
-
-## 📚 Resources
-
-- [PLTW EDD Course Framework](https://www.pltw.org/our-programs/pltw-engineering)
-- [How to Write a Problem Statement — Engineering Design Process](https://www.sciencebuddies.org/science-fair-projects/engineering-design-process/engineering-design-process-steps)
-- [Concept Sketching Tips for Engineers — Autodesk](https://www.autodesk.com/products/fusion-360/blog/what-is-a-concept-sketch/)
-- [Computer Vision Real-World Applications Overview — OpenCV](https://opencv.org/applications-of-computer-vision/)
-- [Smart Birdfeeder Project (Unit Inspiration) — GitHub](https://github.com/stcline/smart-birdfeeder)
+## Why This Revision Matters
+
+The original pilot run of this curriculum required reverting a partially
+broken environment back to a fresh Bookworm image and rebuilding the
+Python environment correctly, discovering each dependency conflict one at
+a time. This revision captures the exact working order (documented in the
+teacher setup repo's `bootstrap_pi.sh` and `TEACHER_README.md`) so that
+future runs of this class start from a known-good state on Day 1, rather
+than partway through Phase 1.
